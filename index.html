@@ -1,19 +1,11 @@
-
 <!DOCTYPE html>
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
 <title>GATO ROBOT - Movement Test</title>
 <style>
-  body {
-    margin: 0;
-    background: #000;
-    overflow: hidden;
-  }
-  canvas {
-    display: block;
-    background: #000;
-  }
+  body { margin: 0; background: #000; overflow: hidden; }
+  canvas { display: block; background: #000; }
 </style>
 </head>
 <body>
@@ -21,9 +13,6 @@
 <canvas id="c"></canvas>
 
 <script>
-// =====================
-// 基本セットアップ
-// =====================
 const canvas = document.getElementById("c");
 const ctx = canvas.getContext("2d");
 
@@ -31,7 +20,7 @@ canvas.width = 800;
 canvas.height = 450;
 
 // =====================
-// 入力管理
+// 入力
 // =====================
 const key = {};
 window.addEventListener("keydown", e => key[e.key] = true);
@@ -42,82 +31,77 @@ window.addEventListener("keyup",   e => key[e.key] = false);
 // =====================
 const player = {
   x: 100,
-  y: 300,
+  y: 0,
   w: 24,
   h: 24,
   vx: 0,
   vy: 0,
 
-  speed: 0.6,      // 横加速
-  maxSpeed: 4.0,   // 最大速度
-  friction: 0.8,   // 地上減速
-  gravity: 0.35,
-  jumpPower: 7.5,
+  speed: 0.6,
+  maxSpeed: 4.0,
+  friction: 0.8,
+
+  gravity: 0.25,     // ★軽く
+  jumpPower: 10.5,   // ★高く
 
   onGround: false,
 
-  coyoteTime: 6,   // 崖ジャンプ猶予
+  coyoteTime: 6,
   coyoteTimer: 0,
 
-  jumpBuffer: 6,   // 早押し猶予
+  jumpBuffer: 6,
   jumpBufferTimer: 0
 };
 
 // =====================
-// 地面
+// ワールド
 // =====================
 const groundY = 360;
+
+// =====================
+// カメラ
+// =====================
+const camera = {
+  x: 0,
+  y: 0
+};
 
 // =====================
 // メインループ
 // =====================
 function update() {
 
-  // -----------------
   // 横移動
-  // -----------------
   if (key["ArrowLeft"])  player.vx -= player.speed;
   if (key["ArrowRight"]) player.vx += player.speed;
 
-  // 最大速度制限
   player.vx = Math.max(-player.maxSpeed, Math.min(player.vx, player.maxSpeed));
 
-  // 摩擦（地上のみ）
   if (player.onGround && !key["ArrowLeft"] && !key["ArrowRight"]) {
     player.vx *= player.friction;
     if (Math.abs(player.vx) < 0.1) player.vx = 0;
   }
 
-  // -----------------
   // ジャンプ入力
-  // -----------------
   if (key["z"]) {
     player.jumpBufferTimer = player.jumpBuffer;
   }
 
-  // -----------------
   // ジャンプ発動
-  // -----------------
   if (player.jumpBufferTimer > 0 && player.coyoteTimer > 0) {
     player.vy = -player.jumpPower;
     player.jumpBufferTimer = 0;
     player.coyoteTimer = 0;
   }
 
-  // -----------------
   // 重力
-  // -----------------
   player.vy += player.gravity;
 
-  // -----------------
   // 移動
-  // -----------------
   player.x += player.vx;
   player.y += player.vy;
 
-  // -----------------
   // 地面判定
-  // -----------------
   if (player.y + player.h >= groundY) {
     player.y = groundY - player.h;
     player.vy = 0;
@@ -130,6 +114,12 @@ function update() {
 
   player.jumpBufferTimer--;
 
+  // =====================
+  // カメラ更新（中央固定）
+  // =====================
+  camera.x = player.x - canvas.width / 2 + player.w / 2;
+  camera.y = player.y - canvas.height / 2 + player.h / 2;
+
   draw();
   requestAnimationFrame(update);
 }
@@ -138,16 +128,22 @@ function update() {
 // 描画
 // =====================
 function draw() {
-  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  ctx.save();
+  ctx.translate(-camera.x, -camera.y);
 
   // 地面
   ctx.fillStyle = "#fff";
-  ctx.fillRect(0, groundY, canvas.width, 4);
+  ctx.fillRect(-10000, groundY, 20000, 4);
 
   // プレイヤー
   ctx.fillRect(player.x, player.y, player.w, player.h);
 
-  // 操作説明
+  ctx.restore();
+
+  // UI
+  ctx.fillStyle = "#fff";
   ctx.font = "14px monospace";
   ctx.fillText("← → 移動 / Z ジャンプ", 20, 30);
 }
