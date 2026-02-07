@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>2D Explore Game</title>
+    <style>
+        body { background: #000; color: white; margin: 0; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; }
+        #canvas-container { position: relative; border: 4px solid #333; }
+        canvas { background: #111; display: block; }
+        #ui { position: absolute; top: 10px; left: 10px; font-family: sans-serif; pointer-events: none; }
+    </style>
+</head>
+<body>
+    <div id="canvas-container">
+        <div id="ui">出口を探せ（矢印キーで移動）</div>
+        <canvas id="gameCanvas"></canvas>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = 400; canvas.height = 400;
+
+        const tileSize = 40;
+        // 迷路データ（1: 壁, 0: 通路, G: ゴール）
+        const map = [
+            [1,1,1,1,1,1,1,1,1,1],
+            [1,0,0,0,1,0,0,0,0,1],
+            [1,0,1,0,1,0,1,1,0,1],
+            [1,0,1,0,0,0,0,1,0,1],
+            [1,0,1,1,1,1,0,1,0,1],
+            [1,0,0,0,0,1,0,0,0,1],
+            [1,1,1,1,0,1,1,1,0,1],
+            [1,0,0,0,0,0,0,1,0,1],
+            [1,0,1,1,1,1,0,0,0,1],
+            [1,1,1,1,1,1,1,1,1,1]
+        ];
+        const goal = {x: 8, y: 8};
+        const player = { x: 1, y: 1, color: '#2ed573' };
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // 1. マップの描画
+            for(let y=0; y<map.length; y++) {
+                for(let x=0; x<map[y].length; x++) {
+                    if(map[y][x] === 1) {
+                        ctx.fillStyle = '#444';
+                        ctx.fillRect(x*tileSize, y*tileSize, tileSize, tileSize);
+                    }
+                }
+            }
+
+            // 2. ゴールの描画（目の刺激：報酬への予兆）
+            ctx.fillStyle = '#ffa500';
+            ctx.beginPath();
+            ctx.arc(goal.x*tileSize + 20, goal.y*tileSize + 20, 10, 0, Math.PI*2);
+            ctx.fill();
+
+            // 3. プレイヤーの描画（手の意志）
+            ctx.fillStyle = player.color;
+            ctx.fillRect(player.x*tileSize + 8, player.y*tileSize + 8, 24, 24);
+
+            // 4. 暗闇の演出（漫画的演出：視野の制限）
+            const gradient = ctx.createRadialGradient(
+                player.x*tileSize + 20, player.y*tileSize + 20, 20,
+                player.x*tileSize + 20, player.y*tileSize + 20, 120
+            );
+            gradient.addColorStop(0, 'transparent');
+            gradient.addColorStop(1, 'rgba(0,0,0,0.95)');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+
+        window.addEventListener('keydown', e => {
+            let nextX = player.x;
+            let nextY = player.y;
+            if(e.key === 'ArrowUp') nextY--;
+            if(e.key === 'ArrowDown') nextY++;
+            if(e.key === 'ArrowLeft') nextX--;
+            if(e.key === 'ArrowRight') nextX++;
+
+            // 当たり判定（脳の判断：壁は通れない）
+            if(map[nextY][nextX] !== 1) {
+                player.x = nextX;
+                player.y = nextY;
+            }
+
+            // ゴール判定
+            if(player.x === goal.x && player.y === goal.y) {
+                alert('暗闇を抜け出した！');
+                player.x = 1; player.y = 1;
+            }
+            draw();
+        });
+
+        draw();
+    </script>
+</body>
+</html>
