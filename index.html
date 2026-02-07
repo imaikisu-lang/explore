@@ -2,18 +2,19 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>GATO ROBOT STUDY v2</title>
+<title>GATO ROBOT CORE STUDY</title>
 <style>
 html,body{
   margin:0;
   background:#000;
-  color:#888;
+  color:#666;
   font-family: monospace;
 }
 canvas{
   display:block;
   margin:0 auto;
   background:#000;
+  outline:none;
 }
 #hint{
   text-align:center;
@@ -24,17 +25,18 @@ canvas{
 </head>
 <body>
 
-<canvas id="game" width="640" height="360"></canvas>
+<canvas id="game" width="640" height="360" tabindex="0"></canvas>
 <div id="hint">← → 移動 / Z ジャンプ / X スーツ切替</div>
 
 <script>
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
+canvas.focus(); // ★これが超重要
 
 const TILE = 32;
-const GRAVITY = 0.5;
-const SPEED = 2.2;
-const JUMP = -8;
+const GRAVITY = 0.6;
+const SPEED = 2.5;
+const JUMP = -9;
 
 const map = [
 "####################",
@@ -52,17 +54,17 @@ const map = [
 const player = {
   x:64, y:64,
   vx:0, vy:0,
-  w:18, h:18,
+  w:16, h:16,
   onGround:false,
   suit:true
 };
 
 const keys = {};
 
-addEventListener("keydown",e=>{
+canvas.addEventListener("keydown",e=>{
   keys[e.code]=true;
 });
-addEventListener("keyup",e=>{
+canvas.addEventListener("keyup",e=>{
   keys[e.code]=false;
 });
 
@@ -76,13 +78,13 @@ function tileAt(px,py){
 function solid(px,py){
   const t = tileAt(px,py);
   if(t==="#") return true;
-  if(t==="S" && !player.suit) return true; // 狭い通路
-  if(t==="N" && player.suit) return true;  // スーツだと通れない
+  if(t==="S" && !player.suit) return true;
+  if(t==="N" && player.suit) return true;
   return false;
 }
 
 function update(){
-  // 左右（即反応・即停止）
+  // 左右：完全即時反応
   player.vx = 0;
   if(keys["ArrowLeft"]) player.vx = -SPEED;
   if(keys["ArrowRight"]) player.vx = SPEED;
@@ -118,7 +120,7 @@ function update(){
     solid(player.x,player.y+player.h) ||
     solid(player.x+player.w,player.y+player.h)
   ){
-    player.y = Math.floor((player.y+player.h)/TILE)*TILE-player.h;
+    player.y = Math.floor((player.y+player.h)/TILE)*TILE - player.h;
     player.vy = 0;
     player.onGround = true;
   }
@@ -127,20 +129,14 @@ function update(){
 function draw(){
   ctx.clearRect(0,0,canvas.width,canvas.height);
 
-  // マップ（線主体）
+  // マップ
   ctx.strokeStyle="#444";
   for(let y=0;y<map.length;y++){
     for(let x=0;x<map[y].length;x++){
       const t = map[y][x];
-      if(t==="#"){
-        ctx.strokeRect(x*TILE,y*TILE,TILE,TILE);
-      }
-      if(t==="S"){
-        ctx.strokeRect(x*TILE+8,y*TILE+8,16,16);
-      }
-      if(t==="N"){
-        ctx.strokeRect(x*TILE+4,y*TILE+4,24,24);
-      }
+      if(t==="#") ctx.strokeRect(x*TILE,y*TILE,TILE,TILE);
+      if(t==="S") ctx.strokeRect(x*TILE+8,y*TILE+8,16,16);
+      if(t==="N") ctx.strokeRect(x*TILE+4,y*TILE+4,24,24);
       if(t==="G"){
         ctx.fillStyle="#eee";
         ctx.beginPath();
@@ -157,7 +153,7 @@ function draw(){
   }else{
     ctx.fillStyle="#eee";
     ctx.beginPath();
-    ctx.arc(player.x+9,player.y+9,9,0,Math.PI*2);
+    ctx.arc(player.x+8,player.y+8,8,0,Math.PI*2);
     ctx.fill();
   }
 }
@@ -167,9 +163,11 @@ function loop(){
   draw();
   requestAnimationFrame(loop);
 }
+
 loop();
 </script>
 
 </body>
 </html>
+
 
