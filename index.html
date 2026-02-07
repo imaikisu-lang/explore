@@ -2,10 +2,19 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>GATO ROBOT - Movement Test</title>
+<title>GATO ROBOT Clone</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
-  body { margin: 0; background: #000; overflow: hidden; }
-  canvas { display: block; background: #000; }
+  body {
+    margin: 0;
+    background: #000;
+    overflow: hidden;
+    touch-action: none;
+  }
+  canvas {
+    display: block;
+    background: #000;
+  }
 </style>
 </head>
 <body>
@@ -13,97 +22,139 @@
 <canvas id="c"></canvas>
 
 <script>
+/* =====================
+   画面・スケール
+===================== */
 const canvas = document.getElementById("c");
 const ctx = canvas.getContext("2d");
 
-canvas.width = 800;
-canvas.height = 450;
+function resize() {
+  canvas.width  = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener("resize", resize);
 
-// =====================
-// 入力
-// =====================
+const TILE = 32;
+
+/* =====================
+   入力
+===================== */
 const key = {};
 window.addEventListener("keydown", e => key[e.key] = true);
-window.addEventListener("keyup",   e => key[e.key] = false);
+window.addEventListener("keyup", e => key[e.key] = false);
 
-// =====================
-// プレイヤー
-// =====================
+/* =====================
+   タイルマップ
+   1 = 壁 / 0 = 空
+===================== */
+const map = [
+  "11111111111111111111",
+  "10000000000000000001",
+  "10000000000000000001",
+  "10000001111100000001",
+  "10000000000000000001",
+  "10000111110000000001",
+  "10000000000000000001",
+  "10000000000000000001",
+  "11111111111111111111"
+];
+
+/* =====================
+   プレイヤー
+===================== */
 const player = {
-  x: 100,
-  y: 0,
-  w: 24,
-  h: 24,
+  x: 64,
+  y: 64,
+  w: 20,
+  h: 20,
   vx: 0,
   vy: 0,
 
-  speed: 0.6,
-  maxSpeed: 4.0,
-  friction: 0.8,
+  speed: 0.5,
+  maxSpeed: 3.5,
+  gravity: 0.25,
 
-  gravity: 0.25,     // ★軽く
-  jumpPower: 10.5,   // ★高く
+  jumpPower: 9.5,
+  jumpHoldPower: 0.35,   // 押し続け中の上昇力
+  jumpHoldMax: 12,       // 押し続け可能フレーム
+  jumpHoldTimer: 0,
 
   onGround: false,
-
   coyoteTime: 6,
   coyoteTimer: 0,
-
   jumpBuffer: 6,
   jumpBufferTimer: 0
 };
 
-// =====================
-// ワールド
-// =====================
-const groundY = 360;
+/* =====================
+   カメラ
+===================== */
+const camera = { x: 0, y: 0 };
 
-// =====================
-// カメラ
-// =====================
-const camera = {
-  x: 0,
-  y: 0
-};
+/* =====================
+   当たり判定
+===================== */
+function isWall(x, y) {
+  const tx = Math.floor(x / TILE);
+  const ty = Math.floor(y / TILE);
+  if (ty < 0 || ty >= map.length) return true;
+  if (tx < 0 || tx >= map[0].length) return true;
+  return map[ty][tx] === "1";
+}
 
-// =====================
-// メインループ
-// =====================
+/* =====================
+   更新
+===================== */
 function update() {
 
-  // 横移動
+  // 左右移動
   if (key["ArrowLeft"])  player.vx -= player.speed;
   if (key["ArrowRight"]) player.vx += player.speed;
 
   player.vx = Math.max(-player.maxSpeed, Math.min(player.vx, player.maxSpeed));
-
-  if (player.onGround && !key["ArrowLeft"] && !key["ArrowRight"]) {
-    player.vx *= player.friction;
-    if (Math.abs(player.vx) < 0.1) player.vx = 0;
-  }
 
   // ジャンプ入力
   if (key["z"]) {
     player.jumpBufferTimer = player.jumpBuffer;
   }
 
-  // ジャンプ発動
+  // ジャンプ開始
   if (player.jumpBufferTimer > 0 && player.coyoteTimer > 0) {
     player.vy = -player.jumpPower;
+    player.jumpHoldTimer = player.jumpHoldMax;
     player.jumpBufferTimer = 0;
     player.coyoteTimer = 0;
+  }
+
+  // ジャンプ押し続け（高さ可変）
+  if (key["z"] && player.jumpHoldTimer > 0) {
+    player.vy -= player.jumpHoldPower;
+    player.jumpHoldTimer--;
   }
 
   // 重力
   player.vy += player.gravity;
 
-  // 移動
+  // X移動
   player.x += player.vx;
-  player.y += player.vy;
+  if (
+    isWall(player.x, player.y) ||
+    isWall(player.x + player.w, player.y) ||
+    isWall(player.x, player.y + player.h) ||
+    isWall(player.x + player.w, player.y + player.h)
+  ) {
+    player.x -= player.vx;
+    player.vx = 0;
+  }
 
-  // 地面判定
-  if (player.y + player.h >= groundY) {
-    player.y = groundY - player.h;
+  // Y移動
+  player.y += player.vy;
+  if (
+    isWall(player.x, player.y + player.h) ||
+    isWall(player.x + player.w, player.y + player.h)
+  ) {
+    player.y = Math.floor((player.y + player.h) / TILE) * TILE - player.h;
     player.vy = 0;
     player.onGround = true;
     player.coyoteTimer = player.coyoteTime;
@@ -114,9 +165,7 @@ function update() {
 
   player.jumpBufferTimer--;
 
-  // =====================
-  // カメラ更新（中央固定）
-  // =====================
+  // カメラ中央固定
   camera.x = player.x - canvas.width / 2 + player.w / 2;
   camera.y = player.y - canvas.height / 2 + player.h / 2;
 
@@ -124,18 +173,24 @@ function update() {
   requestAnimationFrame(update);
 }
 
-// =====================
-// 描画
-// =====================
+/* =====================
+   描画
+===================== */
 function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
   ctx.save();
   ctx.translate(-camera.x, -camera.y);
 
-  // 地面
+  // タイル
   ctx.fillStyle = "#fff";
-  ctx.fillRect(-10000, groundY, 20000, 4);
+  for (let y = 0; y < map.length; y++) {
+    for (let x = 0; x < map[y].length; x++) {
+      if (map[y][x] === "1") {
+        ctx.fillRect(x*TILE, y*TILE, TILE, TILE);
+      }
+    }
+  }
 
   // プレイヤー
   ctx.fillRect(player.x, player.y, player.w, player.h);
@@ -144,16 +199,11 @@ function draw() {
 
   // UI
   ctx.fillStyle = "#fff";
-  ctx.font = "14px monospace";
-  ctx.fillText("← → 移動 / Z ジャンプ", 20, 30);
+  ctx.font = "16px monospace";
+  ctx.fillText("← → 移動 / Z ジャンプ（長押しで高く）", 20, 30);
 }
 
 update();
 </script>
-
 </body>
 </html>
-
-
-
-
