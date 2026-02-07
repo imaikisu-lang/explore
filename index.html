@@ -2,99 +2,213 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>2D Explore Game</title>
+    <title>Heart Maze: The Explorer</title>
     <style>
-        body { background: #000; color: white; margin: 0; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; }
-        #canvas-container { position: relative; border: 4px solid #333; }
+        body { background: #000; color: #eee; font-family: 'Courier New', Courier, monospace; display: flex; flex-direction: column; align-items: center; margin: 0; overflow: hidden; height: 100vh; }
+        #canvas-container { position: relative; border: 4px solid #333; margin-top: 20px; }
         canvas { background: #111; display: block; }
         #ui { position: absolute; top: 10px; left: 10px; font-family: sans-serif; pointer-events: none; }
+        #msg-box { width: 380px; height: 80px; background: #222; border: 2px solid #eee; margin-top: 10px; padding: 10px; font-size: 14px; line-height: 1.6; overflow-y: auto; text-align: left; }
+        .stats { margin-top: 10px; font-size: 16px; color: #2ed573; }
+        /* プレイヤーのライト表現 */
+        #player-light {
+            position: absolute;
+            width: 200px; /* ライトの初期サイズ */
+            height: 200px;
+            background: radial-gradient(circle at center, rgba(255,255,200,0.3) 0%, rgba(0,0,0,0) 70%);
+            border-radius: 50%;
+            transform: translate(-50%, -50%); /* 中心に配置 */
+            pointer-events: none;
+            mix-blend-mode: screen; /* 背景を明るくする */
+        }
     </style>
 </head>
 <body>
+    <div class="stats">記憶のかけら: <span id="memory-count">0</span>/3 | ペイントモード: <span id="paint-mode">オフ</span> (Zキー)</div>
     <div id="canvas-container">
-        <div id="ui">出口を探せ（矢印キーで移動）</div>
+        <div id="ui">心の迷宮を進め (矢印キーで移動, Xキーで攻撃)</div>
         <canvas id="gameCanvas"></canvas>
+        <div id="player-light"></div>
     </div>
+    <div id="msg-box">深い暗闇の中だ。失われた3つの「記憶のかけら」と、出口の「扉」を探し出せ。</div>
 
     <script>
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
-        canvas.width = 400; canvas.height = 400;
+        const msgBox = document.getElementById('msg-box');
+        const memoryCountEl = document.getElementById('memory-count');
+        const paintModeEl = document.getElementById('paint-mode');
+        const playerLightEl = document.getElementById('player-light');
 
-        const tileSize = 40;
-        // 迷路データ（1: 壁, 0: 通路, G: ゴール）
+        canvas.width = 400; canvas.height = 400;
+        const TILE = 40;
+
+        // マップデータ (1:壁, 0:通路, 2:硬い壁(要攻撃), 3:記憶のかけら, 4:ゴール扉)
         const map = [
             [1,1,1,1,1,1,1,1,1,1],
             [1,0,0,0,1,0,0,0,0,1],
-            [1,0,1,0,1,0,1,1,0,1],
+            [1,0,1,0,1,0,2,1,0,1], /* 硬い壁を追加 */
             [1,0,1,0,0,0,0,1,0,1],
             [1,0,1,1,1,1,0,1,0,1],
-            [1,0,0,0,0,1,0,0,0,1],
+            [1,3,0,0,0,1,0,0,0,1], /* 記憶のかけら */
             [1,1,1,1,0,1,1,1,0,1],
-            [1,0,0,0,0,0,0,1,0,1],
-            [1,0,1,1,1,1,0,0,0,1],
+            [1,0,0,2,0,0,0,1,0,1], /* 硬い壁を追加 */
+            [1,0,1,1,1,3,0,0,4,1], /* 記憶のかけらとゴール */
             [1,1,1,1,1,1,1,1,1,1]
         ];
-        const goal = {x: 8, y: 8};
-        const player = { x: 1, y: 1, color: '#2ed573' };
 
+        let player = { x: 1, y: 1, memories: 0, paintMode: false, lightSize: 200 };
+        const goal = {x: 8, y: 8};
+
+        let paintedTiles = {}; // 塗られたタイルを管理 (キー: "x,y", 値: true)
+
+        function logMessage(text) {
+            msgBox.innerHTML = text + "<br>" + msgBox.innerHTML;
+        }
+
+        function playHeartbeatSound() {
+            // 実際はAudio APIを使うが、今回はconsole.logで代用
+            // console.log("ドクドク...");
+            const audio = new Audio('https://freesound.org/data/previews/173/173661_3196628-lq.mp3'); // ドクドク音の例 (要差し替え)
+            audio.volume = 0.3;
+            audio.play().catch(e => console.log("音の再生失敗:", e));
+        }
+        
         function draw() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
             // 1. マップの描画
             for(let y=0; y<map.length; y++) {
                 for(let x=0; x<map[y].length; x++) {
-                    if(map[y][x] === 1) {
+                    const tileKey = `${x},${y}`;
+                    if(map[y][x] === 1) { // 通常の壁
                         ctx.fillStyle = '#444';
-                        ctx.fillRect(x*tileSize, y*tileSize, tileSize, tileSize);
+                    } else if (map[y][x] === 2) { // 硬い壁
+                        ctx.fillStyle = '#663333'; // より硬そうな色
+                    } else if (map[y][x] === 3) { // 記憶のかけら
+                        ctx.fillStyle = '#47b2ff';
+                    } else if (map[y][x] === 4) { // ゴール
+                        ctx.fillStyle = '#ffa500';
+                    } else { // 通路
+                        ctx.fillStyle = '#111';
                     }
+                    // 塗られたタイルは明るくする（漫画的演出）
+                    if (paintedTiles[tileKey]) {
+                        ctx.fillStyle = '#3a3a3a'; // 塗られた通路の色
+                    }
+                    ctx.fillRect(x*TILE, y*TILE, TILE, TILE);
                 }
             }
 
-            // 2. ゴールの描画（目の刺激：報酬への予兆）
-            ctx.fillStyle = '#ffa500';
-            ctx.beginPath();
-            ctx.arc(goal.x*tileSize + 20, goal.y*tileSize + 20, 10, 0, Math.PI*2);
-            ctx.fill();
+            // プレイヤーの描画
+            ctx.fillStyle = '#2ed573';
+            ctx.fillRect(player.x*TILE + 8, player.y*TILE + 8, 24, 24);
 
-            // 3. プレイヤーの描画（手の意志）
-            ctx.fillStyle = player.color;
-            ctx.fillRect(player.x*tileSize + 8, player.y*tileSize + 8, 24, 24);
+            // プレイヤーのライト位置更新
+            playerLightEl.style.left = (player.x * TILE + TILE / 2) + 'px';
+            playerLightEl.style.top = (player.y * TILE + TILE / 2) + 'px';
+            playerLightEl.style.width = player.lightSize + 'px';
+            playerLightEl.style.height = player.lightSize + 'px';
 
-            // 4. 暗闇の演出（漫画的演出：視野の制限）
+            // 暗闇の演出 (ライトの周り以外を暗くする)
             const gradient = ctx.createRadialGradient(
-                player.x*tileSize + 20, player.y*tileSize + 20, 20,
-                player.x*tileSize + 20, player.y*tileSize + 20, 120
+                player.x*TILE + TILE/2, player.y*TILE + TILE/2, player.lightSize / 8, // 内側の明るい範囲
+                player.x*TILE + TILE/2, player.y*TILE + TILE/2, player.lightSize / 2 // 外側の暗くなる範囲
             );
-            gradient.addColorStop(0, 'transparent');
+            gradient.addColorStop(0, 'rgba(0,0,0,0)');
             gradient.addColorStop(1, 'rgba(0,0,0,0.95)');
             ctx.fillStyle = gradient;
             ctx.fillRect(0, 0, canvas.width, canvas.height);
         }
 
         window.addEventListener('keydown', e => {
-            let nextX = player.x;
-            let nextY = player.y;
-            if(e.key === 'ArrowUp') nextY--;
-            if(e.key === 'ArrowDown') nextY++;
-            if(e.key === 'ArrowLeft') nextX--;
-            if(e.key === 'ArrowRight') nextX++;
+            let nx = player.x, ny = player.y;
+            let moved = false;
+            let attacked = false;
 
-            // 当たり判定（脳の判断：壁は通れない）
-            if(map[nextY][nextX] !== 1) {
-                player.x = nextX;
-                player.y = nextY;
+            if(e.key === 'ArrowUp') { ny--; moved = true; }
+            else if(e.key === 'ArrowDown') { ny++; moved = true; }
+            else if(e.key === 'ArrowLeft') { nx--; moved = true; }
+            else if(e.key === 'ArrowRight') { nx++; moved = true; }
+            else if(e.key === 'x') { attacked = true; } // Xキーで攻撃
+            else if(e.key === 'z') { // Zキーでペイントモード切り替え
+                player.paintMode = !player.paintMode;
+                paintModeEl.innerText = player.paintMode ? 'オン' : 'オフ';
+                logMessage(`ペイントモードが ${player.paintMode ? 'オン' : 'オフ'} になりました。`);
+                return; // 移動ではないのでここで終了
+            }
+
+            // ペイントモード中の処理
+            if (player.paintMode && moved) {
+                const tileKey = `${player.x},${player.y}`;
+                if (!paintedTiles[tileKey]) {
+                    paintedTiles[tileKey] = true;
+                    logMessage(`床を「${player.x},${player.y}」に塗り替えました。（新しい道を感じる）`);
+                }
+            }
+
+
+            // 移動処理
+            if (moved) {
+                const targetTile = map[ny][nx];
+
+                if(targetTile === 1 || targetTile === 2) { // 壁または硬い壁
+                    logMessage("壁だ。何かの力が道を塞いでいる...");
+                    // 音を頼りに壁を壊す（目を使わない探索） - 硬い壁の近くで心音を鳴らす
+                    if (targetTile === 2) {
+                        logMessage("硬い壁のようだ。何かが内側で鼓動している... (Xキーで試せるかも？)");
+                        playHeartbeatSound();
+                    }
+                    return; // 移動不可
+                }
+                
+                player.x = nx; player.y = ny; // 移動実行
+
+                // 記憶のかけら回収 (小説要素)
+                if(targetTile === 3) {
+                    player.memories++;
+                    memoryCountEl.innerText = player.memories;
+                    const memoryStories = [
+                        "最初の記憶: 「赤」のマフラーと、忘れかけていた温もり。",
+                        "二番目の記憶: 「青」の手袋と、凍える指先の約束。",
+                        "最後の記憶: 「自分」を信じる心。光が少し強くなった！"
+                    ];
+                    logMessage("★ " + memoryStories[player.memories - 1]);
+                    map[ny][nx] = 0; // 回収済みにする
+                    if (player.memories === 3) {
+                        player.lightSize += 100; // 全ての記憶でライトが大きくなる
+                        playerLightEl.style.width = player.lightSize + 'px';
+                        playerLightEl.style.height = player.lightSize + 'px';
+                        logMessage("全ての記憶を取り戻した。目の前の暗闇が少し晴れたようだ。");
+                    }
+                }
+            }
+
+            // 攻撃処理（硬い壁を壊す）
+            if (attacked) {
+                const targetX = player.x, targetY = player.y; // 攻撃は今の位置で
+                if (map[targetY][targetX-1] === 2) { if (player.memories >= 1) { map[targetY][targetX-1] = 0; logMessage("壁を破壊した！道が開かれた。"); } else { logMessage("力が足りない。もっと記憶を取り戻さないと..."); } }
+                else if (map[targetY][targetX+1] === 2) { if (player.memories >= 1) { map[targetY][targetX+1] = 0; logMessage("壁を破壊した！道が開かれた。"); } else { logMessage("力が足りない。もっと記憶を取り戻さないと..."); } }
+                else if (map[targetY-1][targetX] === 2) { if (player.memories >= 1) { map[targetY-1][targetX] = 0; logMessage("壁を破壊した！道が開かれた。"); } else { logMessage("力が足りない。もっと記憶を取り戻さないと..."); } }
+                else if (map[targetY+1][targetX] === 2) { if (player.memories >= 1) { map[targetY+1][targetX] = 0; logMessage("壁を破壊した！道が開かれた。"); } else { logMessage("力が足りない。もっと記憶を取り戻さないと..."); } }
+                else { logMessage("攻撃したが、何も起こらなかった..."); }
             }
 
             // ゴール判定
             if(player.x === goal.x && player.y === goal.y) {
-                alert('暗闇を抜け出した！');
-                player.x = 1; player.y = 1;
+                if(player.memories >= 3) {
+                    alert('おめでとう！心の迷宮を完全に抜け出した。');
+                    location.reload();
+                } else {
+                    logMessage("出口の扉は開かない。まだ心の迷宮に囚われているようだ...（すべての記憶が必要だ）");
+                }
             }
             draw();
         });
 
+        // 初回描画
         draw();
+        logMessage("矢印キーで移動。Zキーでペイントモード。Xキーで攻撃。");
     </script>
 </body>
 </html>
