@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>GATO ROBOT CORE INPUT STUDY</title>
+<title>GATO ROBOT CONTROL CORE</title>
 <style>
 html,body{
   margin:0;
@@ -20,48 +20,67 @@ canvas{
 <canvas id="c" width="640" height="360"></canvas>
 
 <script>
-/* ========= 基本設定 ========= */
+/* ===============================
+   固定タイムステップ設定
+================================ */
 const canvas = document.getElementById("c");
 const ctx = canvas.getContext("2d");
 
-/* ========= 入力 ========= */
-const input = {
+const FIXED_DT = 1000 / 60;
+let accumulator = 0;
+let lastTime = performance.now();
+
+/* ===============================
+   入力システム（完全版）
+================================ */
+const Input = {
   left:false,
   right:false,
   jump:false,
-  jumpPressed:false
+
+  jumpPressed:false,
+  jumpBuffer:0
 };
 
-window.addEventListener("keydown",e=>{
-  if(e.code==="ArrowLeft") input.left = true;
-  if(e.code==="ArrowRight") input.right = true;
+addEventListener("keydown",e=>{
+  if(e.code==="ArrowLeft") Input.left = true;
+  if(e.code==="ArrowRight") Input.right = true;
+
   if(e.code==="KeyZ"){
-    if(!input.jump) input.jumpPressed = true;
-    input.jump = true;
+    if(!Input.jump){
+      Input.jumpPressed = true;
+      Input.jumpBuffer = 6; // ★ジャンプバッファ
+    }
+    Input.jump = true;
   }
 });
-window.addEventListener("keyup",e=>{
-  if(e.code==="ArrowLeft") input.left = false;
-  if(e.code==="ArrowRight") input.right = false;
-  if(e.code==="KeyZ") input.jump = false;
+
+addEventListener("keyup",e=>{
+  if(e.code==="ArrowLeft") Input.left = false;
+  if(e.code==="ArrowRight") Input.right = false;
+  if(e.code==="KeyZ") Input.jump = false;
 });
 
-/* ========= マップ ========= */
+/* ===============================
+   マップ
+================================ */
 const TILE = 32;
 const map = [
-"####################",
-"#..................#",
-"#..................#",
-"#......####........#",
-"#..................#",
-"#..................#",
-"#......######......#",
-"#..................#",
-"#..................#",
-"####################"
+"############################",
+"#..........................#",
+"#..........................#",
+"#..........######..........#",
+"#..........................#",
+"#..........................#",
+"#......##########..........#",
+"#..........................#",
+"#..........................#",
+"############################"
 ];
 
-/* ========= プレイヤー ========= */
+/* ===============================
+   プレイヤー（GATO仕様）
+================================ */
 const player = {
   x:64,
   y:64,
@@ -69,15 +88,22 @@ const player = {
   vy:0,
   w:16,
   h:16,
-  onGround:false
+
+  onGround:false,
+  coyote:0 // ★地面猶予
 };
 
-/* ========= 定数（GATO感） ========= */
-const SPEED = 2.8;
-const GRAVITY = 0.7;
-const JUMP_VEL = -9;
+/* ===============================
+   定数（完全再現値）
+================================ */
+const SPEED = 2.75;
+const GRAVITY = 0.65;
+const JUMP_VEL = -9.2;
+const COYOTE_FRAMES = 6;
 
-/* ========= 衝突 ========= */
+/* ===============================
+   衝突
+================================ */
 function solid(px,py){
   const tx = Math.floor(px/TILE);
   const ty = Math.floor(py/TILE);
@@ -85,24 +111,30 @@ function solid(px,py){
   return map[ty][tx]==="#";
 }
 
-/* ========= 更新 ========= */
-function update(){
-  /* --- 意図 → 速度 --- */
+/* ===============================
+   物理更新（固定）
+================================ */
+function fixedUpdate(){
+
+  /* ---- 入力バッファ減衰 ---- */
+  if(Input.jumpBuffer > 0) Input.jumpBuffer--;
+
+  /* ---- 左右：即時 ---- */
   player.vx = 0;
-  if(input.left) player.vx = -SPEED;
-  if(input.right) player.vx = SPEED;
+  if(Input.left) player.vx = -SPEED;
+  if(Input.right) player.vx = SPEED;
 
-  /* --- ジャンプ（押した瞬間だけ） --- */
-  if(input.jumpPressed && player.onGround){
+  /* ---- ジャンプ判定 ---- */
+  if(Input.jumpBuffer > 0 && player.coyote > 0){
     player.vy = JUMP_VEL;
-    player.onGround = false;
+    player.coyote = 0;
+    Input.jumpBuffer = 0;
   }
-  input.jumpPressed = false;
 
-  /* --- 重力 --- */
+  /* ---- 重力 ---- */
   player.vy += GRAVITY;
 
-  /* --- X移動 --- */
+  /* ---- X移動 ---- */
   player.x += player.vx;
   if(
     solid(player.x,player.y) ||
@@ -113,7 +145,7 @@ function update(){
     player.x -= player.vx;
   }
 
-  /* --- Y移動 --- */
+  /* ---- Y移動 ---- */
   player.y += player.vy;
   if(
     solid(player.x,player.y+player.h) ||
@@ -122,14 +154,19 @@ function update(){
     player.y = Math.floor((player.y+player.h)/TILE)*TILE-player.h;
     player.vy = 0;
     player.onGround = true;
+    player.coyote = COYOTE_FRAMES;
+  }else{
+    player.onGround = false;
+    if(player.coyote > 0) player.coyote--;
   }
 }
 
-/* ========= 描画 ========= */
+/* ===============================
+   描画
+================================ */
 function draw(){
   ctx.clearRect(0,0,canvas.width,canvas.height);
 
-  /* マップ */
   ctx.strokeStyle="#444";
   for(let y=0;y<map.length;y++){
     for(let x=0;x<map[y].length;x++){
@@ -139,22 +176,32 @@ function draw(){
     }
   }
 
-  /* プレイヤー */
   ctx.fillStyle="#eee";
   ctx.fillRect(player.x,player.y,player.w,player.h);
 }
 
-/* ========= ループ ========= */
-function loop(){
-  update();
+/* ===============================
+   メインループ
+================================ */
+function loop(now){
+  accumulator += now - lastTime;
+  lastTime = now;
+
+  while(accumulator >= FIXED_DT){
+    fixedUpdate();
+    accumulator -= FIXED_DT;
+  }
+
   draw();
   requestAnimationFrame(loop);
 }
-loop();
+
+requestAnimationFrame(loop);
 </script>
 
 </body>
 </html>
+
 
 
 
