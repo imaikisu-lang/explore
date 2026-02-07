@@ -2,27 +2,19 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>GATO ROBOT CONTROL CORE</title>
+<title>GATO ROBOT - REFINED CORE</title>
 <style>
-html,body{
-  margin:0;
-  background:#000;
-}
-canvas{
-  display:block;
-  margin:auto;
-  background:#000;
-}
+  html,body{ margin:0; background:#000; color: #fff; font-family: sans-serif; }
+  canvas{ display:block; margin:20px auto; background:#111; border: 2px solid #333; }
+  .info { text-align: center; color: #888; }
 </style>
 </head>
 <body>
 
 <canvas id="c" width="640" height="360"></canvas>
+<div class="info">左右キー：移動 / Zキー：ジャンプ</div>
 
 <script>
-/* ===============================
-   固定タイムステップ設定
-================================ */
 const canvas = document.getElementById("c");
 const ctx = canvas.getContext("2d");
 
@@ -30,40 +22,26 @@ const FIXED_DT = 1000 / 60;
 let accumulator = 0;
 let lastTime = performance.now();
 
-/* ===============================
-   入力システム（完全版）
-================================ */
 const Input = {
-  left:false,
-  right:false,
-  jump:false,
-
-  jumpPressed:false,
+  left:false, right:false, jump:false,
   jumpBuffer:0
 };
 
-addEventListener("keydown",e=>{
+addEventListener("keydown", e => {
   if(e.code==="ArrowLeft") Input.left = true;
   if(e.code==="ArrowRight") Input.right = true;
-
   if(e.code==="KeyZ"){
-    if(!Input.jump){
-      Input.jumpPressed = true;
-      Input.jumpBuffer = 6; // ★ジャンプバッファ
-    }
     Input.jump = true;
+    Input.jumpBuffer = 8; // ジャンプ先行入力
   }
 });
 
-addEventListener("keyup",e=>{
+addEventListener("keyup", e => {
   if(e.code==="ArrowLeft") Input.left = false;
   if(e.code==="ArrowRight") Input.right = false;
   if(e.code==="KeyZ") Input.jump = false;
 });
 
-/* ===============================
-   マップ
-================================ */
 const TILE = 32;
 const map = [
 "############################",
@@ -71,134 +49,105 @@ const map = [
 "#..........................#",
 "#..........######..........#",
 "#..........................#",
-"#..........................#",
-"#......##########..........#",
-"#..........................#",
-"#..........................#",
+"#......###.................#",
+"#......##########....###...#",
+"#....................###...#",
+"#....................###...#",
 "############################"
 ];
 
-/* ===============================
-   プレイヤー（GATO仕様）
-================================ */
 const player = {
-  x:64,
-  y:64,
-  vx:0,
-  vy:0,
-  w:16,
-  h:16,
-
-  onGround:false,
-  coyote:0 // ★地面猶予
+  x:100, y:200, vx:0, vy:0,
+  w:20, h:20, // 猫サイズ
+  coyote:0
 };
 
-/* ===============================
-   定数（完全再現値）
-================================ */
-const SPEED = 2.75;
-const GRAVITY = 0.65;
-const JUMP_VEL = -9.2;
+const SPEED = 3.5;
+const GRAVITY = 0.5;
+const JUMP_VEL = -8.5;
 const COYOTE_FRAMES = 6;
 
-/* ===============================
-   衝突
-================================ */
-function solid(px,py){
-  const tx = Math.floor(px/TILE);
-  const ty = Math.floor(py/TILE);
-  if(ty<0||ty>=map.length||tx<0||tx>=map[0].length) return true;
-  return map[ty][tx]==="#";
+// 衝突判定関数
+function isSolid(x, y) {
+  const tx = Math.floor(x / TILE);
+  const ty = Math.floor(y / TILE);
+  if (ty < 0 || ty >= map.length || tx < 0 || tx >= map[0].length) return true;
+  return map[ty][tx] === "#";
 }
 
-/* ===============================
-   物理更新（固定）
-================================ */
-function fixedUpdate(){
-
-  /* ---- 入力バッファ減衰 ---- */
-  if(Input.jumpBuffer > 0) Input.jumpBuffer--;
-
-  /* ---- 左右：即時 ---- */
+function fixedUpdate() {
+  // 1. 左右移動
   player.vx = 0;
-  if(Input.left) player.vx = -SPEED;
-  if(Input.right) player.vx = SPEED;
+  if (Input.left) player.vx = -SPEED;
+  if (Input.right) player.vx = SPEED;
 
-  /* ---- ジャンプ判定 ---- */
-  if(Input.jumpBuffer > 0 && player.coyote > 0){
+  // 2. 水平方向の衝突判定
+  player.x += player.vx;
+  if (player.vx > 0) { // 右移動中
+    if (isSolid(player.x + player.w, player.y) || isSolid(player.x + player.w, player.y + player.h - 1)) {
+      player.x = Math.floor((player.x + player.w) / TILE) * TILE - player.w;
+    }
+  } else if (player.vx < 0) { // 左移動中
+    if (isSolid(player.x, player.y) || isSolid(player.x, player.y + player.h - 1)) {
+      player.x = Math.ceil(player.x / TILE) * TILE;
+    }
+  }
+
+  // 3. 重力とジャンプ
+  player.vy += GRAVITY;
+  if (Input.jumpBuffer > 0 && player.coyote > 0) {
     player.vy = JUMP_VEL;
     player.coyote = 0;
     Input.jumpBuffer = 0;
   }
+  if (Input.jumpBuffer > 0) Input.jumpBuffer--;
 
-  /* ---- 重力 ---- */
-  player.vy += GRAVITY;
-
-  /* ---- X移動 ---- */
-  player.x += player.vx;
-  if(
-    solid(player.x,player.y) ||
-    solid(player.x+player.w,player.y) ||
-    solid(player.x,player.y+player.h) ||
-    solid(player.x+player.w,player.y+player.h)
-  ){
-    player.x -= player.vx;
-  }
-
-  /* ---- Y移動 ---- */
+  // 4. 垂直方向の衝突判定
   player.y += player.vy;
-  if(
-    solid(player.x,player.y+player.h) ||
-    solid(player.x+player.w,player.y+player.h)
-  ){
-    player.y = Math.floor((player.y+player.h)/TILE)*TILE-player.h;
-    player.vy = 0;
-    player.onGround = true;
-    player.coyote = COYOTE_FRAMES;
-  }else{
-    player.onGround = false;
-    if(player.coyote > 0) player.coyote--;
+  player.coyote--; // 空中にいる前提で減衰
+
+  if (player.vy > 0) { // 下落中
+    if (isSolid(player.x + 2, player.y + player.h) || isSolid(player.x + player.w - 2, player.y + player.h)) {
+      player.y = Math.floor((player.y + player.h) / TILE) * TILE - player.h;
+      player.vy = 0;
+      player.coyote = COYOTE_FRAMES; // 地面に着いたのでコト―テ復活
+    }
+  } else if (player.vy < 0) { // 上昇中
+    if (isSolid(player.x + 2, player.y) || isSolid(player.x + player.w - 2, player.y)) {
+      player.y = Math.ceil(player.y / TILE) * TILE;
+      player.vy = 0; // 頭をぶつけたら速度リセット
+    }
   }
 }
 
-/* ===============================
-   描画
-================================ */
-function draw(){
-  ctx.clearRect(0,0,canvas.width,canvas.height);
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  ctx.strokeStyle="#444";
-  for(let y=0;y<map.length;y++){
-    for(let x=0;x<map[y].length;x++){
-      if(map[y][x]==="#"){
-        ctx.strokeRect(x*TILE,y*TILE,TILE,TILE);
-      }
+  // マップ描画
+  ctx.fillStyle = "#333";
+  for(let y=0; y<map.length; y++){
+    for(let x=0; x<map[y].length; x++){
+      if(map[y][x]==="#") ctx.fillRect(x*TILE, y*TILE, TILE-1, TILE-1);
     }
   }
 
-  ctx.fillStyle="#eee";
-  ctx.fillRect(player.x,player.y,player.w,player.h);
+  // プレイヤー描画（Gatoっぽく白）
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(player.x, player.y, player.w, player.h);
 }
 
-/* ===============================
-   メインループ
-================================ */
-function loop(now){
+function loop(now) {
   accumulator += now - lastTime;
   lastTime = now;
-
   while(accumulator >= FIXED_DT){
     fixedUpdate();
     accumulator -= FIXED_DT;
   }
-
   draw();
   requestAnimationFrame(loop);
 }
-
 requestAnimationFrame(loop);
 </script>
-
 </body>
 </html>
 
