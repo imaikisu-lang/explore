@@ -1,239 +1,158 @@
+
 <!DOCTYPE html>
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>GATO ROBOT CORE + SYSTEM</title>
+<title>GATO ROBOT - Movement Test</title>
 <style>
-html,body{
-  margin:0;
-  background:#000;
-  color:#777;
-  font-family: monospace;
-}
-canvas{
-  display:block;
-  margin:auto;
-  background:#000;
-}
-#ui{
-  position:fixed;
-  bottom:6px;
-  width:100%;
-  text-align:center;
-  font-size:12px;
-  pointer-events:none;
-}
+  body {
+    margin: 0;
+    background: #000;
+    overflow: hidden;
+  }
+  canvas {
+    display: block;
+    background: #000;
+  }
 </style>
 </head>
 <body>
 
-<canvas id="c" width="640" height="360" tabindex="0"></canvas>
-<div id="ui">← → 移動 / Z ジャンプ / X スーツ切替</div>
+<canvas id="c"></canvas>
 
 <script>
-/* ========= 固定フレーム ========= */
-const FPS = 60;
-const DT = 1/FPS;
-let acc = 0;
-let last = performance.now();
-
-/* ========= Canvas ========= */
+// =====================
+// 基本セットアップ
+// =====================
 const canvas = document.getElementById("c");
 const ctx = canvas.getContext("2d");
-canvas.focus();
 
-/* ========= 入力 ========= */
-const input = {
-  left:false,
-  right:false,
-  jump:false,
-  jumpPressed:false,
-  suit:false
-};
+canvas.width = 800;
+canvas.height = 450;
 
-addEventListener("keydown",e=>{
-  if(e.code==="ArrowLeft") input.left = true;
-  if(e.code==="ArrowRight") input.right = true;
-  if(e.code==="KeyZ"){
-    if(!input.jump) input.jumpPressed = true;
-    input.jump = true;
-  }
-  if(e.code==="KeyX"){
-    input.suit = true;
-  }
-});
-addEventListener("keyup",e=>{
-  if(e.code==="ArrowLeft") input.left = false;
-  if(e.code==="ArrowRight") input.right = false;
-  if(e.code==="KeyZ") input.jump = false;
-});
+// =====================
+// 入力管理
+// =====================
+const key = {};
+window.addEventListener("keydown", e => key[e.key] = true);
+window.addEventListener("keyup",   e => key[e.key] = false);
 
-/* ========= マップ ========= */
-const TILE = 32;
-const map = [
-"############################",
-"#..........................#",
-"#..............S...........#",
-"#..............####........#",
-"#..........................#",
-"#..N......................#",
-"#........######............#",
-"#..........................#",
-"#......................G..#",
-"############################"
-];
-
-/* ========= プレイヤー ========= */
+// =====================
+// プレイヤー
+// =====================
 const player = {
-  x:64, y:64,
-  vx:0, vy:0,
-  w:16, h:16,
-  onGround:false,
-  suit:true,
-  coyote:0,
-  jumpBuffer:0
+  x: 100,
+  y: 300,
+  w: 24,
+  h: 24,
+  vx: 0,
+  vy: 0,
+
+  speed: 0.6,      // 横加速
+  maxSpeed: 4.0,   // 最大速度
+  friction: 0.8,   // 地上減速
+  gravity: 0.35,
+  jumpPower: 7.5,
+
+  onGround: false,
+
+  coyoteTime: 6,   // 崖ジャンプ猶予
+  coyoteTimer: 0,
+
+  jumpBuffer: 6,   // 早押し猶予
+  jumpBufferTimer: 0
 };
 
-/* ========= カメラ ========= */
-const camera = {
-  x:0, y:0
-};
+// =====================
+// 地面
+// =====================
+const groundY = 360;
 
-/* ========= 定数 ========= */
-const SPEED = 2.8;
-const GRAVITY = 0.7;
-const JUMP = -9;
-const COYOTE = 4;
-const BUFFER = 4;
+// =====================
+// メインループ
+// =====================
+function update() {
 
-/* ========= 衝突 ========= */
-function tileAt(px,py){
-  const tx = Math.floor(px/TILE);
-  const ty = Math.floor(py/TILE);
-  if(ty<0||ty>=map.length||tx<0||tx>=map[0].length) return "#";
-  return map[ty][tx];
-}
-function solid(px,py){
-  const t = tileAt(px,py);
-  if(t==="#") return true;
-  if(t==="S" && !player.suit) return true; // 狭い
-  if(t==="N" && player.suit) return true;  // スーツ不可
-  return false;
-}
+  // -----------------
+  // 横移動
+  // -----------------
+  if (key["ArrowLeft"])  player.vx -= player.speed;
+  if (key["ArrowRight"]) player.vx += player.speed;
 
-/* ========= 1フレーム ========= */
-function step(){
-  /* 着替え */
-  if(input.suit){
-    player.suit = !player.suit;
-    input.suit = false;
+  // 最大速度制限
+  player.vx = Math.max(-player.maxSpeed, Math.min(player.vx, player.maxSpeed));
+
+  // 摩擦（地上のみ）
+  if (player.onGround && !key["ArrowLeft"] && !key["ArrowRight"]) {
+    player.vx *= player.friction;
+    if (Math.abs(player.vx) < 0.1) player.vx = 0;
   }
 
-  /* 入力バッファ */
-  if(input.jumpPressed){
-    player.jumpBuffer = BUFFER;
-    input.jumpPressed = false;
-  } else {
-    player.jumpBuffer--;
+  // -----------------
+  // ジャンプ入力
+  // -----------------
+  if (key["z"]) {
+    player.jumpBufferTimer = player.jumpBuffer;
   }
 
-  /* 左右 */
-  player.vx = 0;
-  if(input.left) player.vx = -SPEED;
-  if(input.right) player.vx = SPEED;
-
-  /* コヨーテ */
-  if(player.onGround) player.coyote = COYOTE;
-  else player.coyote--;
-
-  /* ジャンプ */
-  if(player.jumpBuffer>0 && player.coyote>0){
-    player.vy = JUMP;
-    player.onGround = false;
-    player.jumpBuffer = 0;
-    player.coyote = 0;
+  // -----------------
+  // ジャンプ発動
+  // -----------------
+  if (player.jumpBufferTimer > 0 && player.coyoteTimer > 0) {
+    player.vy = -player.jumpPower;
+    player.jumpBufferTimer = 0;
+    player.coyoteTimer = 0;
   }
 
-  player.vy += GRAVITY;
+  // -----------------
+  // 重力
+  // -----------------
+  player.vy += player.gravity;
 
-  /* X */
+  // -----------------
+  // 移動
+  // -----------------
   player.x += player.vx;
-  if(
-    solid(player.x,player.y) ||
-    solid(player.x+player.w,player.y) ||
-    solid(player.x,player.y+player.h) ||
-    solid(player.x+player.w,player.y+player.h)
-  ){
-    player.x -= player.vx;
-  }
-
-  /* Y */
   player.y += player.vy;
-  if(
-    solid(player.x,player.y+player.h) ||
-    solid(player.x+player.w,player.y+player.h)
-  ){
-    player.y = Math.floor((player.y+player.h)/TILE)*TILE - player.h;
+
+  // -----------------
+  // 地面判定
+  // -----------------
+  if (player.y + player.h >= groundY) {
+    player.y = groundY - player.h;
     player.vy = 0;
     player.onGround = true;
+    player.coyoteTimer = player.coyoteTime;
   } else {
     player.onGround = false;
+    player.coyoteTimer--;
   }
 
-  /* カメラ追従（即） */
-  camera.x = player.x - canvas.width/2 + player.w/2;
-  camera.y = player.y - canvas.height/2 + player.h/2;
+  player.jumpBufferTimer--;
+
+  draw();
+  requestAnimationFrame(update);
 }
 
-/* ========= 描画 ========= */
-function draw(){
+// =====================
+// 描画
+// =====================
+function draw() {
   ctx.clearRect(0,0,canvas.width,canvas.height);
 
-  ctx.save();
-  ctx.translate(-camera.x,-camera.y);
+  // 地面
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, groundY, canvas.width, 4);
 
-  ctx.strokeStyle="#444";
-  for(let y=0;y<map.length;y++){
-    for(let x=0;x<map[y].length;x++){
-      const t = map[y][x];
-      if(t==="#") ctx.strokeRect(x*TILE,y*TILE,TILE,TILE);
-      if(t==="S") ctx.strokeRect(x*TILE+8,y*TILE+8,16,16);
-      if(t==="N") ctx.strokeRect(x*TILE+4,y*TILE+4,24,24);
-      if(t==="G"){
-        ctx.fillStyle="#eee";
-        ctx.beginPath();
-        ctx.arc(x*TILE+16,y*TILE+16,6,0,Math.PI*2);
-        ctx.fill();
-      }
-    }
-  }
+  // プレイヤー
+  ctx.fillRect(player.x, player.y, player.w, player.h);
 
-  /* プレイヤー */
-  if(player.suit){
-    ctx.fillStyle="#aaa";
-    ctx.fillRect(player.x,player.y,player.w,player.h);
-  }else{
-    ctx.fillStyle="#eee";
-    ctx.beginPath();
-    ctx.arc(player.x+8,player.y+8,8,0,Math.PI*2);
-    ctx.fill();
-  }
-
-  ctx.restore();
+  // 操作説明
+  ctx.font = "14px monospace";
+  ctx.fillText("← → 移動 / Z ジャンプ", 20, 30);
 }
 
-/* ========= ループ ========= */
-function loop(t){
-  acc += (t-last)/1000;
-  last = t;
-  while(acc>=DT){
-    step();
-    acc-=DT;
-  }
-  draw();
-  requestAnimationFrame(loop);
-}
-requestAnimationFrame(loop);
+update();
 </script>
 
 </body>
