@@ -2,225 +2,167 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>Nikki's Monochro Maze</title>
+<title>GATO ROBOT STUDY</title>
 <style>
-body {
+html,body{
+  margin:0;
   background:#000;
   color:#eee;
   font-family: monospace;
-  display:flex;
-  flex-direction:column;
-  align-items:center;
-  margin:0;
-  height:100vh;
-  overflow:hidden;
 }
-#canvas-container {
-  position:relative;
-  border:4px solid #444;
-  margin-top:16px;
-}
-canvas {
-  background:#111;
+canvas{
   display:block;
+  margin:0 auto;
+  background:#000;
 }
-#ui {
-  position:absolute;
-  top:6px;
-  left:6px;
+#hint{
+  text-align:center;
   font-size:12px;
-  color:#aaa;
-  pointer-events:none;
-}
-#msg-box {
-  width:400px;
-  height:80px;
-  background:#222;
-  border:2px solid #555;
-  margin-top:10px;
-  padding:8px;
-  font-size:13px;
-  overflow-y:auto;
-}
-.stats {
-  margin-top:10px;
-  font-size:14px;
-  color:#aaa;
+  color:#777;
+  margin-top:4px;
 }
 </style>
 </head>
 <body>
 
-<div class="stats">
-  カラーコードの記憶: <span id="color-memories">0</span>/3
-</div>
-
-<div id="canvas-container">
-  <div id="ui">←↑↓→ 移動 / Z スーツ脱着 / X スイッチ</div>
-  <canvas id="gameCanvas" width="400" height="400"></canvas>
-</div>
-
-<div id="msg-box">ここはモノクロの迷宮。</div>
+<canvas id="game" width="640" height="360"></canvas>
+<div id="hint">← → 移動 / Z ジャンプ / X スーツ切替</div>
 
 <script>
-const canvas = document.getElementById("gameCanvas");
-const ctx = canvas.getContext("2d");
-const msgBox = document.getElementById("msg-box");
-const colorMemoriesEl = document.getElementById("color-memories");
+const c = document.getElementById("game");
+const ctx = c.getContext("2d");
 
-const TILE = 40;
+const GRAVITY = 0.6;
+const TILE = 32;
 
-/* マップ
- 1: 壁
- 0: 通路
- 'C': 記憶
- 'S1': スイッチ
- 'D1': 扉
- 'G': ゴール
-*/
 const map = [
- [1,1,1,1,1,1,1,1,1,1],
- [1,0,0,0,1,0,'C',0,0,1],
- [1,0,1,0,1,0,1,1,0,1],
- [1,0,1,'S1',0,0,0,1,0,1],
- [1,0,1,1,1,1,0,1,0,1],
- [1,'C',0,0,0,1,0,0,0,1],
- [1,1,1,1,0,'D1',1,1,0,1],
- [1,0,0,0,0,0,0,1,0,1],
- [1,0,1,'C',1,1,0,0,'G',1],
- [1,1,1,1,1,1,1,1,1,1]
+"####################",
+"#..................#",
+"#..............S...#",
+"#......####........#",
+"#..................#",
+"#..N...............#",
+"#......######......#",
+"#..................#",
+"#..............G...#",
+"####################"
 ];
 
-const doors = {
-  D1: { x:5, y:6, open:false }
-};
-
 const player = {
-  x:1,
-  y:1,
-  inSuit:true,
-  memories:0
+  x:64, y:64,
+  vx:0, vy:0,
+  w:18, h:18,
+  onGround:false,
+  suit:true
 };
 
-function log(msg){
-  msgBox.innerHTML = msg + "<br>" + msgBox.innerHTML;
+const keys = {};
+
+window.addEventListener("keydown",e=>keys[e.key]=true);
+window.addEventListener("keyup",e=>keys[e.key]=false);
+
+function solidAt(x,y){
+  const tx = Math.floor(x/TILE);
+  const ty = Math.floor(y/TILE);
+  if(ty<0||ty>=map.length||tx<0||tx>=map[0].length) return true;
+  return map[ty][tx]==="#" ||
+         (map[ty][tx]==="S" && !player.suit) ||
+         (map[ty][tx]==="N" && player.suit);
+}
+
+function update(){
+  // 移動
+  if(keys["ArrowLeft"]) player.vx = -2;
+  else if(keys["ArrowRight"]) player.vx = 2;
+  else player.vx *= 0.6;
+
+  // ジャンプ
+  if(keys["z"] && player.onGround){
+    player.vy = -9;
+    player.onGround = false;
+  }
+
+  // スーツ切替
+  if(keys["x"]){
+    player.suit = !player.suit;
+    keys["x"]=false;
+  }
+
+  player.vy += GRAVITY;
+
+  // X移動
+  player.x += player.vx;
+  if(
+    solidAt(player.x, player.y) ||
+    solidAt(player.x+player.w, player.y) ||
+    solidAt(player.x, player.y+player.h) ||
+    solidAt(player.x+player.w, player.y+player.h)
+  ){
+    player.x -= player.vx;
+    player.vx = 0;
+  }
+
+  // Y移動
+  player.y += player.vy;
+  if(
+    solidAt(player.x, player.y+player.h) ||
+    solidAt(player.x+player.w, player.y+player.h)
+  ){
+    player.y = Math.floor((player.y+player.h)/TILE)*TILE - player.h;
+    player.vy = 0;
+    player.onGround = true;
+  }
 }
 
 function draw(){
-  ctx.clearRect(0,0,400,400);
+  ctx.clearRect(0,0,c.width,c.height);
 
-  for(let y=0;y<10;y++){
-    for(let x=0;x<10;x++){
+  // マップ
+  for(let y=0;y<map.length;y++){
+    for(let x=0;x<map[y].length;x++){
       const t = map[y][x];
-      let c = "#111";
-
-      if(t===1) c="#444";
-      if(t==='C') c="#666";
-      if(t==='S1') c="#555";
-      if(t==='D1') c = doors.D1.open ? "#111" : "#666";
-      if(t==='G') c="#777";
-
-      ctx.fillStyle=c;
-      ctx.fillRect(x*TILE,y*TILE,TILE,TILE);
-
-      if(t==='C'){
-        ctx.fillStyle="#bbb";
-        ctx.fillRect(x*TILE+15,y*TILE+15,10,10);
+      if(t==="#"){
+        ctx.fillStyle="#555";
+        ctx.fillRect(x*TILE,y*TILE,TILE,TILE);
       }
-      if(t==='S1'){
-        ctx.fillStyle=doors.D1.open?"#2ed573":"#aaa";
-        ctx.fillRect(x*TILE+10,y*TILE+18,20,6);
+      if(t==="S"){
+        ctx.fillStyle="#888";
+        ctx.fillRect(x*TILE+8,y*TILE+8,16,16);
       }
-      if(t==='G'){
+      if(t==="N"){
+        ctx.strokeStyle="#aaa";
+        ctx.strokeRect(x*TILE+6,y*TILE+6,20,20);
+      }
+      if(t==="G"){
         ctx.fillStyle="#eee";
         ctx.beginPath();
-        ctx.arc(x*TILE+20,y*TILE+20,10,0,Math.PI*2);
+        ctx.arc(x*TILE+16,y*TILE+16,8,0,Math.PI*2);
         ctx.fill();
       }
     }
   }
 
-  if(player.inSuit){
+  // プレイヤー
+  if(player.suit){
     ctx.fillStyle="#aaa";
-    ctx.fillRect(player.x*TILE+6,player.y*TILE+6,28,28);
-    ctx.fillStyle="#eee";
-    ctx.fillRect(player.x*TILE+12,player.y*TILE+10,16,12);
+    ctx.fillRect(player.x,player.y,player.w,player.h);
   }else{
     ctx.fillStyle="#eee";
     ctx.beginPath();
-    ctx.arc(player.x*TILE+20,player.y*TILE+20,10,0,Math.PI*2);
-    ctx.fill();
-    ctx.fillStyle="#000";
-    ctx.beginPath();
-    ctx.arc(player.x*TILE+16,player.y*TILE+18,2,0,Math.PI*2);
-    ctx.arc(player.x*TILE+24,player.y*TILE+18,2,0,Math.PI*2);
+    ctx.arc(player.x+9,player.y+9,9,0,Math.PI*2);
     ctx.fill();
   }
 }
 
-window.addEventListener("keydown",e=>{
-  let nx=player.x, ny=player.y;
-
-  if(e.key==="ArrowUp") ny--;
-  else if(e.key==="ArrowDown") ny++;
-  else if(e.key==="ArrowLeft") nx--;
-  else if(e.key==="ArrowRight") nx--;
-  else if(e.key==="ArrowRight") nx++;
-  else if(e.key==="z"){
-    player.inSuit=!player.inSuit;
-    log(player.inSuit?"スーツを着た。":"スーツを脱いだ。");
-    draw(); return;
-  }
-  else if(e.key==="x"){
-    if(map[player.y][player.x]==='S1' && !doors.D1.open){
-      doors.D1.open=true;
-      map[6][5]=0;
-      log("スイッチが押された。扉が開いた。");
-    }else{
-      log("何も起こらない。");
-    }
-    draw(); return;
-  }else return;
-
-  if(ny<0||ny>=10||nx<0||nx>=10) return;
-
-  const t = map[ny][nx];
-
-  if(t===1) return;
-  if(t==='D1' && !doors.D1.open){
-    log("扉は閉じている。");
-    return;
-  }
-
-  player.x=nx; player.y=ny;
-
-  if(t==='C'){
-    player.memories++;
-    colorMemoriesEl.textContent=player.memories;
-    map[ny][nx]=0;
-    const texts=[
-      "赤の記憶を思い出した。",
-      "青の記憶がよみがえる。",
-      "緑の記憶が世界に滲む。"
-    ];
-    log(texts[player.memories-1]);
-  }
-
-  if(t==='G'){
-    if(player.memories>=3){
-      alert("迷宮を抜け出した。");
-      location.reload();
-    }else{
-      log("まだ出口は開かない。");
-    }
-  }
-
+function loop(){
+  update();
   draw();
-});
+  requestAnimationFrame(loop);
+}
 
-draw();
-log("矢印キーで移動。");
+loop();
 </script>
 
 </body>
 </html>
+
