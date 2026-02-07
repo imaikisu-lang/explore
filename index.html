@@ -1,195 +1,226 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-    <meta charset="UTF-8">
-    <title>Nikki's Monochro Maze</title>
-    <style>
-        body { background: #000; color: #eee; font-family: 'Courier New', Courier, monospace; display: flex; flex-direction: column; align-items: center; margin: 0; overflow: hidden; height: 100vh; }
-        #canvas-container { position: relative; border: 4px solid #444; margin-top: 20px; }
-        canvas { background: #111; display: block; }
-        #ui { position: absolute; top: 10px; left: 10px; font-family: sans-serif; pointer-events: none; color: #ccc; }
-        #msg-box { width: 380px; height: 80px; background: #222; border: 2px solid #eee; margin-top: 10px; padding: 10px; font-size: 14px; line-height: 1.6; overflow-y: auto; text-align: left; }
-        .stats { margin-top: 10px; font-size: 16px; color: #aaa; }
-    </style>
+<meta charset="UTF-8">
+<title>Nikki's Monochro Maze</title>
+<style>
+body {
+  background:#000;
+  color:#eee;
+  font-family: monospace;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  margin:0;
+  height:100vh;
+  overflow:hidden;
+}
+#canvas-container {
+  position:relative;
+  border:4px solid #444;
+  margin-top:16px;
+}
+canvas {
+  background:#111;
+  display:block;
+}
+#ui {
+  position:absolute;
+  top:6px;
+  left:6px;
+  font-size:12px;
+  color:#aaa;
+  pointer-events:none;
+}
+#msg-box {
+  width:400px;
+  height:80px;
+  background:#222;
+  border:2px solid #555;
+  margin-top:10px;
+  padding:8px;
+  font-size:13px;
+  overflow-y:auto;
+}
+.stats {
+  margin-top:10px;
+  font-size:14px;
+  color:#aaa;
+}
+</style>
 </head>
 <body>
-    <div class="stats">カラーコードの記憶: <span id="color-memories">0</span>/3</div>
-    <div id="canvas-container">
-        <div id="ui">ニッキのモノクロ迷宮 (矢印キー移動, Zキー: パワードスーツ脱/着, Xキー: スイッチ)</div>
-        <canvas id="gameCanvas"></canvas>
-    </div>
-    <div id="msg-box">ここはモノクロの世界。失われた「色」の記憶を探し、出口を見つけよう。</div>
 
-    <script>
-        const canvas = document.getElementById('gameCanvas');
-        const ctx = canvas.getContext('2d');
-        const msgBox = document.getElementById('msg-box');
-        const colorMemoriesEl = document.getElementById('color-memories');
+<div class="stats">
+  カラーコードの記憶: <span id="color-memories">0</span>/3
+</div>
 
-        canvas.width = 400; canvas.height = 400;
-        const TILE = 40;
+<div id="canvas-container">
+  <div id="ui">←↑↓→ 移動 / Z スーツ脱着 / X スイッチ</div>
+  <canvas id="gameCanvas" width="400" height="400"></canvas>
+</div>
 
-        // マップデータ (1:壁, 0:通路, S:スイッチ, D:扉(初期は閉), C:カラーコードの記憶, G:ゴール)
-        // 扉はD1,D2のように番号を振る。スイッチもS1,S2のように対応させる
-        const map = [
-            [1,1,1,1,1,1,1,1,1,1],
-            [1,0,0,0,1,0,C,0,0,1], /* カラーコード1 */
-            [1,0,1,0,1,0,1,1,0,1],
-            [1,0,1,S1,0,0,0,1,0,1], /* スイッチ1 */
-            [1,0,1,1,1,1,0,1,0,1],
-            [1,C,0,0,0,1,0,0,0,1], /* カラーコード2 */
-            [1,1,1,1,0,D1,1,1,0,1], /* 扉1 */
-            [1,0,0,0,0,0,0,1,0,1],
-            [1,0,1,C,1,1,0,0,G,1], /* カラーコード3とゴール */
-            [1,1,1,1,1,1,1,1,1,1]
-        ];
+<div id="msg-box">ここはモノクロの迷宮。</div>
 
-        let player = { x: 1, y: 1, inSuit: true, colorMemories: 0 }; // inSuit: パワードスーツを着ているか
-        const goal = {x: 8, y: 8};
+<script>
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+const msgBox = document.getElementById("msg-box");
+const colorMemoriesEl = document.getElementById("color-memories");
 
-        let doors = {
-            'D1': { x: 5, y: 6, isOpen: false } // D1扉の位置と状態
-        };
+const TILE = 40;
 
-        function logMessage(text) {
-            msgBox.innerHTML = text + "<br>" + msgBox.innerHTML;
-        }
+/* マップ
+ 1: 壁
+ 0: 通路
+ 'C': 記憶
+ 'S1': スイッチ
+ 'D1': 扉
+ 'G': ゴール
+*/
+const map = [
+ [1,1,1,1,1,1,1,1,1,1],
+ [1,0,0,0,1,0,'C',0,0,1],
+ [1,0,1,0,1,0,1,1,0,1],
+ [1,0,1,'S1',0,0,0,1,0,1],
+ [1,0,1,1,1,1,0,1,0,1],
+ [1,'C',0,0,0,1,0,0,0,1],
+ [1,1,1,1,0,'D1',1,1,0,1],
+ [1,0,0,0,0,0,0,1,0,1],
+ [1,0,1,'C',1,1,0,0,'G',1],
+ [1,1,1,1,1,1,1,1,1,1]
+];
 
-        function draw() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
+const doors = {
+  D1: { x:5, y:6, open:false }
+};
 
-            for(let y=0; y<map.length; y++) {
-                for(let x=0; x<map[y].length; x++) {
-                    const tile = map[y][x];
-                    let fillStyle = '#111'; // デフォルトは通路
+const player = {
+  x:1,
+  y:1,
+  inSuit:true,
+  memories:0
+};
 
-                    if(tile === 1) fillStyle = '#444'; // 壁
-                    else if(tile === 'C') fillStyle = '#777'; // カラーコード
-                    else if(tile === 'S1') fillStyle = '#555'; // スイッチ
-                    else if(tile === 'D1') fillStyle = doors.D1.isOpen ? '#111' : '#666'; // 扉
-                    else if(tile === 'G') fillStyle = '#888'; // ゴール
+function log(msg){
+  msgBox.innerHTML = msg + "<br>" + msgBox.innerHTML;
+}
 
-                    ctx.fillStyle = fillStyle;
-                    ctx.fillRect(x*TILE, y*TILE, TILE, TILE);
+function draw(){
+  ctx.clearRect(0,0,400,400);
 
-                    // スイッチやゴール、記憶の表現（目への刺激）
-                    if (tile === 'S1') {
-                        ctx.fillStyle = '#bbb'; // スイッチは明るく
-                        ctx.fillRect(x*TILE + 10, y*TILE + 20, 20, 10);
-                        if (doors.D1.isOpen) { ctx.fillStyle = '#2ed573'; ctx.fillRect(x*TILE + 10, y*TILE + 15, 20, 5); } // 押されたら緑
-                    } else if (tile === 'G') {
-                        ctx.fillStyle = '#eee'; // ゴールは白く
-                        ctx.beginPath();
-                        ctx.arc(x*TILE + TILE/2, y*TILE + TILE/2, TILE/4, 0, Math.PI*2);
-                        ctx.fill();
-                    } else if (tile === 'C') {
-                        ctx.fillStyle = '#bbb'; // 記憶も白く
-                        ctx.fillRect(x*TILE + 15, y*TILE + 15, 10, 10);
-                    }
-                }
-            }
+  for(let y=0;y<10;y++){
+    for(let x=0;x<10;x++){
+      const t = map[y][x];
+      let c = "#111";
 
-            // プレイヤーの描画 (ニッキ)
-            if (player.inSuit) {
-                ctx.fillStyle = '#bbb'; // スーツは灰色
-                ctx.fillRect(player.x*TILE + 5, player.y*TILE + 5, 30, 30);
-                ctx.fillStyle = '#eee'; // コックピット窓
-                ctx.fillRect(player.x*TILE + 12, player.y*TILE + 8, 16, 12);
-            } else {
-                ctx.fillStyle = '#eee'; // ニッキは白猫
-                ctx.beginPath();
-                ctx.arc(player.x*TILE + TILE/2, player.y*TILE + TILE/2, TILE/4, 0, Math.PI*2);
-                ctx.fill();
-                ctx.fillStyle = '#000'; // 目
-                ctx.beginPath();
-                ctx.arc(player.x*TILE + TILE/2 - 5, player.y*TILE + TILE/2 - 2, 2, 0, Math.PI*2);
-                ctx.arc(player.x*TILE + TILE/2 + 5, player.y*TILE + TILE/2 - 2, 2, 0, Math.PI*2);
-                ctx.fill();
-            }
-        }
+      if(t===1) c="#444";
+      if(t==='C') c="#666";
+      if(t==='S1') c="#555";
+      if(t==='D1') c = doors.D1.open ? "#111" : "#666";
+      if(t==='G') c="#777";
 
-        window.addEventListener('keydown', e => {
-            let nx = player.x, ny = player.y;
-            let moved = false;
+      ctx.fillStyle=c;
+      ctx.fillRect(x*TILE,y*TILE,TILE,TILE);
 
-            if(e.key === 'ArrowUp') { ny--; moved = true; }
-            else if(e.key === 'ArrowDown') { ny++; moved = true; }
-            else if(e.key === 'ArrowLeft') { nx--; moved = true; }
-            else if(e.key === 'ArrowRight') { nx++; moved = true; }
-            else if(e.key === 'z') { // Zキーでパワードスーツ脱/着
-                if (map[player.y][player.x] === 1) { // 壁の中では脱げない
-                    logMessage("壁の中ではスーツを脱げない...");
-                    return;
-                }
-                player.inSuit = !player.inSuit;
-                logMessage(`パワードスーツを${player.inSuit ? '着た' : '脱いだ'}。`);
-                draw();
-                return;
-            }
-            else if(e.key === 'x') { // Xキーでスイッチを押す（または調べる）
-                const currentTile = map[player.y][player.x];
-                if (currentTile === 'S1') {
-                    if (!doors.D1.isOpen) {
-                        doors.D1.isOpen = true;
-                        map[doors.D1.y][doors.D1.x] = 0; // 扉を開く
-                        logMessage("スイッチが押された！どこかの扉が開いたようだ。");
-                    } else {
-                        logMessage("スイッチは既に押されている。");
-                    }
-                } else {
-                    logMessage("何も起こらない...");
-                }
-                draw();
-                return;
-            }
+      if(t==='C'){
+        ctx.fillStyle="#bbb";
+        ctx.fillRect(x*TILE+15,y*TILE+15,10,10);
+      }
+      if(t==='S1'){
+        ctx.fillStyle=doors.D1.open?"#2ed573":"#aaa";
+        ctx.fillRect(x*TILE+10,y*TILE+18,20,6);
+      }
+      if(t==='G'){
+        ctx.fillStyle="#eee";
+        ctx.beginPath();
+        ctx.arc(x*TILE+20,y*TILE+20,10,0,Math.PI*2);
+        ctx.fill();
+      }
+    }
+  }
 
-            // 移動処理
-            if (moved) {
-                const targetTile = map[ny][nx];
+  if(player.inSuit){
+    ctx.fillStyle="#aaa";
+    ctx.fillRect(player.x*TILE+6,player.y*TILE+6,28,28);
+    ctx.fillStyle="#eee";
+    ctx.fillRect(player.x*TILE+12,player.y*TILE+10,16,12);
+  }else{
+    ctx.fillStyle="#eee";
+    ctx.beginPath();
+    ctx.arc(player.x*TILE+20,player.y*TILE+20,10,0,Math.PI*2);
+    ctx.fill();
+    ctx.fillStyle="#000";
+    ctx.beginPath();
+    ctx.arc(player.x*TILE+16,player.y*TILE+18,2,0,Math.PI*2);
+    ctx.arc(player.x*TILE+24,player.y*TILE+18,2,0,Math.PI*2);
+    ctx.fill();
+  }
+}
 
-                // スーツを脱いでいると入れない場所を作る（小ささの表現）
-                // 例: D1扉の場所はスーツを脱いでいないと大きくて通れない
-                if (!player.inSuit && targetTile === 'D1' && !doors.D1.isOpen) {
-                    logMessage("ニッキでは通れない...パワードスーツが必要か？");
-                    return;
-                }
+window.addEventListener("keydown",e=>{
+  let nx=player.x, ny=player.y;
 
+  if(e.key==="ArrowUp") ny--;
+  else if(e.key==="ArrowDown") ny++;
+  else if(e.key==="ArrowLeft") nx--;
+  else if(e.key==="ArrowRight") nx--;
+  else if(e.key==="ArrowRight") nx++;
+  else if(e.key==="z"){
+    player.inSuit=!player.inSuit;
+    log(player.inSuit?"スーツを着た。":"スーツを脱いだ。");
+    draw(); return;
+  }
+  else if(e.key==="x"){
+    if(map[player.y][player.x]==='S1' && !doors.D1.open){
+      doors.D1.open=true;
+      map[6][5]=0;
+      log("スイッチが押された。扉が開いた。");
+    }else{
+      log("何も起こらない。");
+    }
+    draw(); return;
+  }else return;
 
-                if(targetTile === 1 || (targetTile === 'D1' && !doors.D1.isOpen)) { // 壁または閉じた扉
-                    logMessage("壁だ。進めない...");
-                    return; // 移動不可
-                }
-                
-                player.x = nx; player.y = ny; // 移動実行
+  if(ny<0||ny>=10||nx<0||nx>=10) return;
 
-                // カラーコードの記憶回収 (小説要素)
-                if(targetTile === 'C') {
-                    player.colorMemories++;
-                    colorMemoriesEl.innerText = player.colorMemories;
-                    const memoryStories = [
-                        "最初の記憶: 「#FF0000」...それは情熱の赤。",
-                        "二番目の記憶: 「#0000FF」...それは深い海の青。",
-                        "最後の記憶: 「#00FF00」...それは生命の緑。世界に色が戻る兆しを感じる..."
-                    ];
-                    logMessage("★ " + memoryStories[player.colorMemories - 1]);
-                    map[ny][nx] = 0; // 回収済みにする
-                }
-            }
+  const t = map[ny][nx];
 
-            // ゴール判定
-            if(player.x === goal.x && player.y === goal.y) {
-                if(player.colorMemories >= 3) {
-                    alert('おめでとう！全ての色の記憶を取り戻し、モノクロの迷宮を抜け出した！');
-                    location.reload();
-                } else {
-                    logMessage("出口は開かない。まだ全ての色の記憶が揃っていないようだ。");
-                }
-            }
-            draw();
-        });
+  if(t===1) return;
+  if(t==='D1' && !doors.D1.open){
+    log("扉は閉じている。");
+    return;
+  }
 
-        draw(); // 初回描画
-        logMessage("矢印キーで移動。Zキーでパワードスーツ脱/着。Xキーでスイッチ操作。");
-    </script>
+  player.x=nx; player.y=ny;
+
+  if(t==='C'){
+    player.memories++;
+    colorMemoriesEl.textContent=player.memories;
+    map[ny][nx]=0;
+    const texts=[
+      "赤の記憶を思い出した。",
+      "青の記憶がよみがえる。",
+      "緑の記憶が世界に滲む。"
+    ];
+    log(texts[player.memories-1]);
+  }
+
+  if(t==='G'){
+    if(player.memories>=3){
+      alert("迷宮を抜け出した。");
+      location.reload();
+    }else{
+      log("まだ出口は開かない。");
+    }
+  }
+
+  draw();
+});
+
+draw();
+log("矢印キーで移動。");
+</script>
+
 </body>
 </html>
