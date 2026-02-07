@@ -2,152 +2,240 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>GATO ROBOT - REFINED CORE</title>
+<title>GATO ROBOT CORE + SYSTEM</title>
 <style>
-  html,body{ margin:0; background:#000; color: #fff; font-family: sans-serif; }
-  canvas{ display:block; margin:20px auto; background:#111; border: 2px solid #333; }
-  .info { text-align: center; color: #888; }
+html,body{
+  margin:0;
+  background:#000;
+  color:#777;
+  font-family: monospace;
+}
+canvas{
+  display:block;
+  margin:auto;
+  background:#000;
+}
+#ui{
+  position:fixed;
+  bottom:6px;
+  width:100%;
+  text-align:center;
+  font-size:12px;
+  pointer-events:none;
+}
 </style>
 </head>
 <body>
 
-<canvas id="c" width="640" height="360"></canvas>
-<div class="info">左右キー：移動 / Zキー：ジャンプ</div>
+<canvas id="c" width="640" height="360" tabindex="0"></canvas>
+<div id="ui">← → 移動 / Z ジャンプ / X スーツ切替</div>
 
 <script>
+/* ========= 固定フレーム ========= */
+const FPS = 60;
+const DT = 1/FPS;
+let acc = 0;
+let last = performance.now();
+
+/* ========= Canvas ========= */
 const canvas = document.getElementById("c");
 const ctx = canvas.getContext("2d");
+canvas.focus();
 
-const FIXED_DT = 1000 / 60;
-let accumulator = 0;
-let lastTime = performance.now();
-
-const Input = {
-  left:false, right:false, jump:false,
-  jumpBuffer:0
+/* ========= 入力 ========= */
+const input = {
+  left:false,
+  right:false,
+  jump:false,
+  jumpPressed:false,
+  suit:false
 };
 
-addEventListener("keydown", e => {
-  if(e.code==="ArrowLeft") Input.left = true;
-  if(e.code==="ArrowRight") Input.right = true;
+addEventListener("keydown",e=>{
+  if(e.code==="ArrowLeft") input.left = true;
+  if(e.code==="ArrowRight") input.right = true;
   if(e.code==="KeyZ"){
-    Input.jump = true;
-    Input.jumpBuffer = 8; // ジャンプ先行入力
+    if(!input.jump) input.jumpPressed = true;
+    input.jump = true;
+  }
+  if(e.code==="KeyX"){
+    input.suit = true;
   }
 });
-
-addEventListener("keyup", e => {
-  if(e.code==="ArrowLeft") Input.left = false;
-  if(e.code==="ArrowRight") Input.right = false;
-  if(e.code==="KeyZ") Input.jump = false;
+addEventListener("keyup",e=>{
+  if(e.code==="ArrowLeft") input.left = false;
+  if(e.code==="ArrowRight") input.right = false;
+  if(e.code==="KeyZ") input.jump = false;
 });
 
+/* ========= マップ ========= */
 const TILE = 32;
 const map = [
 "############################",
 "#..........................#",
+"#..............S...........#",
+"#..............####........#",
 "#..........................#",
-"#..........######..........#",
+"#..N......................#",
+"#........######............#",
 "#..........................#",
-"#......###.................#",
-"#......##########....###...#",
-"#....................###...#",
-"#....................###...#",
+"#......................G..#",
 "############################"
 ];
 
+/* ========= プレイヤー ========= */
 const player = {
-  x:100, y:200, vx:0, vy:0,
-  w:20, h:20, // 猫サイズ
-  coyote:0
+  x:64, y:64,
+  vx:0, vy:0,
+  w:16, h:16,
+  onGround:false,
+  suit:true,
+  coyote:0,
+  jumpBuffer:0
 };
 
-const SPEED = 3.5;
-const GRAVITY = 0.5;
-const JUMP_VEL = -8.5;
-const COYOTE_FRAMES = 6;
+/* ========= カメラ ========= */
+const camera = {
+  x:0, y:0
+};
 
-// 衝突判定関数
-function isSolid(x, y) {
-  const tx = Math.floor(x / TILE);
-  const ty = Math.floor(y / TILE);
-  if (ty < 0 || ty >= map.length || tx < 0 || tx >= map[0].length) return true;
-  return map[ty][tx] === "#";
+/* ========= 定数 ========= */
+const SPEED = 2.8;
+const GRAVITY = 0.7;
+const JUMP = -9;
+const COYOTE = 4;
+const BUFFER = 4;
+
+/* ========= 衝突 ========= */
+function tileAt(px,py){
+  const tx = Math.floor(px/TILE);
+  const ty = Math.floor(py/TILE);
+  if(ty<0||ty>=map.length||tx<0||tx>=map[0].length) return "#";
+  return map[ty][tx];
+}
+function solid(px,py){
+  const t = tileAt(px,py);
+  if(t==="#") return true;
+  if(t==="S" && !player.suit) return true; // 狭い
+  if(t==="N" && player.suit) return true;  // スーツ不可
+  return false;
 }
 
-function fixedUpdate() {
-  // 1. 左右移動
+/* ========= 1フレーム ========= */
+function step(){
+  /* 着替え */
+  if(input.suit){
+    player.suit = !player.suit;
+    input.suit = false;
+  }
+
+  /* 入力バッファ */
+  if(input.jumpPressed){
+    player.jumpBuffer = BUFFER;
+    input.jumpPressed = false;
+  } else {
+    player.jumpBuffer--;
+  }
+
+  /* 左右 */
   player.vx = 0;
-  if (Input.left) player.vx = -SPEED;
-  if (Input.right) player.vx = SPEED;
+  if(input.left) player.vx = -SPEED;
+  if(input.right) player.vx = SPEED;
 
-  // 2. 水平方向の衝突判定
-  player.x += player.vx;
-  if (player.vx > 0) { // 右移動中
-    if (isSolid(player.x + player.w, player.y) || isSolid(player.x + player.w, player.y + player.h - 1)) {
-      player.x = Math.floor((player.x + player.w) / TILE) * TILE - player.w;
-    }
-  } else if (player.vx < 0) { // 左移動中
-    if (isSolid(player.x, player.y) || isSolid(player.x, player.y + player.h - 1)) {
-      player.x = Math.ceil(player.x / TILE) * TILE;
-    }
-  }
+  /* コヨーテ */
+  if(player.onGround) player.coyote = COYOTE;
+  else player.coyote--;
 
-  // 3. 重力とジャンプ
-  player.vy += GRAVITY;
-  if (Input.jumpBuffer > 0 && player.coyote > 0) {
-    player.vy = JUMP_VEL;
+  /* ジャンプ */
+  if(player.jumpBuffer>0 && player.coyote>0){
+    player.vy = JUMP;
+    player.onGround = false;
+    player.jumpBuffer = 0;
     player.coyote = 0;
-    Input.jumpBuffer = 0;
   }
-  if (Input.jumpBuffer > 0) Input.jumpBuffer--;
 
-  // 4. 垂直方向の衝突判定
+  player.vy += GRAVITY;
+
+  /* X */
+  player.x += player.vx;
+  if(
+    solid(player.x,player.y) ||
+    solid(player.x+player.w,player.y) ||
+    solid(player.x,player.y+player.h) ||
+    solid(player.x+player.w,player.y+player.h)
+  ){
+    player.x -= player.vx;
+  }
+
+  /* Y */
   player.y += player.vy;
-  player.coyote--; // 空中にいる前提で減衰
-
-  if (player.vy > 0) { // 下落中
-    if (isSolid(player.x + 2, player.y + player.h) || isSolid(player.x + player.w - 2, player.y + player.h)) {
-      player.y = Math.floor((player.y + player.h) / TILE) * TILE - player.h;
-      player.vy = 0;
-      player.coyote = COYOTE_FRAMES; // 地面に着いたのでコト―テ復活
-    }
-  } else if (player.vy < 0) { // 上昇中
-    if (isSolid(player.x + 2, player.y) || isSolid(player.x + player.w - 2, player.y)) {
-      player.y = Math.ceil(player.y / TILE) * TILE;
-      player.vy = 0; // 頭をぶつけたら速度リセット
-    }
-  }
-}
-
-function draw() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  // マップ描画
-  ctx.fillStyle = "#333";
-  for(let y=0; y<map.length; y++){
-    for(let x=0; x<map[y].length; x++){
-      if(map[y][x]==="#") ctx.fillRect(x*TILE, y*TILE, TILE-1, TILE-1);
-    }
+  if(
+    solid(player.x,player.y+player.h) ||
+    solid(player.x+player.w,player.y+player.h)
+  ){
+    player.y = Math.floor((player.y+player.h)/TILE)*TILE - player.h;
+    player.vy = 0;
+    player.onGround = true;
+  } else {
+    player.onGround = false;
   }
 
-  // プレイヤー描画（Gatoっぽく白）
-  ctx.fillStyle = "#fff";
-  ctx.fillRect(player.x, player.y, player.w, player.h);
+  /* カメラ追従（即） */
+  camera.x = player.x - canvas.width/2 + player.w/2;
+  camera.y = player.y - canvas.height/2 + player.h/2;
 }
 
-function loop(now) {
-  accumulator += now - lastTime;
-  lastTime = now;
-  while(accumulator >= FIXED_DT){
-    fixedUpdate();
-    accumulator -= FIXED_DT;
+/* ========= 描画 ========= */
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  ctx.save();
+  ctx.translate(-camera.x,-camera.y);
+
+  ctx.strokeStyle="#444";
+  for(let y=0;y<map.length;y++){
+    for(let x=0;x<map[y].length;x++){
+      const t = map[y][x];
+      if(t==="#") ctx.strokeRect(x*TILE,y*TILE,TILE,TILE);
+      if(t==="S") ctx.strokeRect(x*TILE+8,y*TILE+8,16,16);
+      if(t==="N") ctx.strokeRect(x*TILE+4,y*TILE+4,24,24);
+      if(t==="G"){
+        ctx.fillStyle="#eee";
+        ctx.beginPath();
+        ctx.arc(x*TILE+16,y*TILE+16,6,0,Math.PI*2);
+        ctx.fill();
+      }
+    }
+  }
+
+  /* プレイヤー */
+  if(player.suit){
+    ctx.fillStyle="#aaa";
+    ctx.fillRect(player.x,player.y,player.w,player.h);
+  }else{
+    ctx.fillStyle="#eee";
+    ctx.beginPath();
+    ctx.arc(player.x+8,player.y+8,8,0,Math.PI*2);
+    ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+/* ========= ループ ========= */
+function loop(t){
+  acc += (t-last)/1000;
+  last = t;
+  while(acc>=DT){
+    step();
+    acc-=DT;
   }
   draw();
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
 </script>
+
 </body>
 </html>
 
