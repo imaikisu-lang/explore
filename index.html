@@ -2,108 +2,107 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>GATO ROBOT CORE STUDY</title>
+<title>GATO ROBOT CORE INPUT STUDY</title>
 <style>
 html,body{
   margin:0;
   background:#000;
-  color:#666;
-  font-family: monospace;
 }
 canvas{
   display:block;
-  margin:0 auto;
+  margin:auto;
   background:#000;
-  outline:none;
-}
-#hint{
-  text-align:center;
-  font-size:12px;
-  margin:6px;
 }
 </style>
 </head>
 <body>
 
-<canvas id="game" width="640" height="360" tabindex="0"></canvas>
-<div id="hint">← → 移動 / Z ジャンプ / X スーツ切替</div>
+<canvas id="c" width="640" height="360"></canvas>
 
 <script>
-const canvas = document.getElementById("game");
+/* ========= 基本設定 ========= */
+const canvas = document.getElementById("c");
 const ctx = canvas.getContext("2d");
-canvas.focus(); // ★これが超重要
 
+/* ========= 入力 ========= */
+const input = {
+  left:false,
+  right:false,
+  jump:false,
+  jumpPressed:false
+};
+
+window.addEventListener("keydown",e=>{
+  if(e.code==="ArrowLeft") input.left = true;
+  if(e.code==="ArrowRight") input.right = true;
+  if(e.code==="KeyZ"){
+    if(!input.jump) input.jumpPressed = true;
+    input.jump = true;
+  }
+});
+window.addEventListener("keyup",e=>{
+  if(e.code==="ArrowLeft") input.left = false;
+  if(e.code==="ArrowRight") input.right = false;
+  if(e.code==="KeyZ") input.jump = false;
+});
+
+/* ========= マップ ========= */
 const TILE = 32;
-const GRAVITY = 0.6;
-const SPEED = 2.5;
-const JUMP = -9;
-
 const map = [
 "####################",
 "#..................#",
-"#..............S...#",
+"#..................#",
 "#......####........#",
 "#..................#",
-"#..N...............#",
+"#..................#",
 "#......######......#",
 "#..................#",
-"#..............G...#",
+"#..................#",
 "####################"
 ];
 
+/* ========= プレイヤー ========= */
 const player = {
-  x:64, y:64,
-  vx:0, vy:0,
-  w:16, h:16,
-  onGround:false,
-  suit:true
+  x:64,
+  y:64,
+  vx:0,
+  vy:0,
+  w:16,
+  h:16,
+  onGround:false
 };
 
-const keys = {};
+/* ========= 定数（GATO感） ========= */
+const SPEED = 2.8;
+const GRAVITY = 0.7;
+const JUMP_VEL = -9;
 
-canvas.addEventListener("keydown",e=>{
-  keys[e.code]=true;
-});
-canvas.addEventListener("keyup",e=>{
-  keys[e.code]=false;
-});
-
-function tileAt(px,py){
+/* ========= 衝突 ========= */
+function solid(px,py){
   const tx = Math.floor(px/TILE);
   const ty = Math.floor(py/TILE);
-  if(ty<0||ty>=map.length||tx<0||tx>=map[0].length) return "#";
-  return map[ty][tx];
+  if(ty<0||ty>=map.length||tx<0||tx>=map[0].length) return true;
+  return map[ty][tx]==="#";
 }
 
-function solid(px,py){
-  const t = tileAt(px,py);
-  if(t==="#") return true;
-  if(t==="S" && !player.suit) return true;
-  if(t==="N" && player.suit) return true;
-  return false;
-}
-
+/* ========= 更新 ========= */
 function update(){
-  // 左右：完全即時反応
+  /* --- 意図 → 速度 --- */
   player.vx = 0;
-  if(keys["ArrowLeft"]) player.vx = -SPEED;
-  if(keys["ArrowRight"]) player.vx = SPEED;
+  if(input.left) player.vx = -SPEED;
+  if(input.right) player.vx = SPEED;
 
-  // ジャンプ
-  if(keys["KeyZ"] && player.onGround){
-    player.vy = JUMP;
+  /* --- ジャンプ（押した瞬間だけ） --- */
+  if(input.jumpPressed && player.onGround){
+    player.vy = JUMP_VEL;
     player.onGround = false;
   }
+  input.jumpPressed = false;
 
-  // スーツ切替
-  if(keys["KeyX"]){
-    player.suit = !player.suit;
-    keys["KeyX"]=false;
-  }
-
+  /* --- 重力 --- */
   player.vy += GRAVITY;
 
-  // X移動
+  /* --- X移動 --- */
   player.x += player.vx;
   if(
     solid(player.x,player.y) ||
@@ -114,60 +113,48 @@ function update(){
     player.x -= player.vx;
   }
 
-  // Y移動
+  /* --- Y移動 --- */
   player.y += player.vy;
   if(
     solid(player.x,player.y+player.h) ||
     solid(player.x+player.w,player.y+player.h)
   ){
-    player.y = Math.floor((player.y+player.h)/TILE)*TILE - player.h;
+    player.y = Math.floor((player.y+player.h)/TILE)*TILE-player.h;
     player.vy = 0;
     player.onGround = true;
   }
 }
 
+/* ========= 描画 ========= */
 function draw(){
   ctx.clearRect(0,0,canvas.width,canvas.height);
 
-  // マップ
+  /* マップ */
   ctx.strokeStyle="#444";
   for(let y=0;y<map.length;y++){
     for(let x=0;x<map[y].length;x++){
-      const t = map[y][x];
-      if(t==="#") ctx.strokeRect(x*TILE,y*TILE,TILE,TILE);
-      if(t==="S") ctx.strokeRect(x*TILE+8,y*TILE+8,16,16);
-      if(t==="N") ctx.strokeRect(x*TILE+4,y*TILE+4,24,24);
-      if(t==="G"){
-        ctx.fillStyle="#eee";
-        ctx.beginPath();
-        ctx.arc(x*TILE+16,y*TILE+16,6,0,Math.PI*2);
-        ctx.fill();
+      if(map[y][x]==="#"){
+        ctx.strokeRect(x*TILE,y*TILE,TILE,TILE);
       }
     }
   }
 
-  // プレイヤー
-  if(player.suit){
-    ctx.fillStyle="#aaa";
-    ctx.fillRect(player.x,player.y,player.w,player.h);
-  }else{
-    ctx.fillStyle="#eee";
-    ctx.beginPath();
-    ctx.arc(player.x+8,player.y+8,8,0,Math.PI*2);
-    ctx.fill();
-  }
+  /* プレイヤー */
+  ctx.fillStyle="#eee";
+  ctx.fillRect(player.x,player.y,player.w,player.h);
 }
 
+/* ========= ループ ========= */
 function loop(){
   update();
   draw();
   requestAnimationFrame(loop);
 }
-
 loop();
 </script>
 
 </body>
 </html>
+
 
 
